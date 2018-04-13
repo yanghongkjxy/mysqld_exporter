@@ -4,10 +4,10 @@ package collector
 
 import (
 	"database/sql"
-	"flag"
 	"fmt"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"gopkg.in/alecthomas/kingpin.v2"
 )
 
 const perfEventsStatementsQuery = `
@@ -27,27 +27,47 @@ const perfEventsStatementsQuery = `
 	    SUM_SORT_MERGE_PASSES,
 	    SUM_SORT_ROWS,
 	    SUM_NO_INDEX_USED
-	  FROM performance_schema.events_statements_summary_by_digest
-	  WHERE SCHEMA_NAME NOT IN ('mysql', 'performance_schema', 'information_schema')
-	    AND last_seen > DATE_SUB(NOW(), INTERVAL %d SECOND)
+	  FROM (
+	    SELECT *
+	    FROM performance_schema.events_statements_summary_by_digest
+	    WHERE SCHEMA_NAME NOT IN ('mysql', 'performance_schema', 'information_schema')
+	      AND LAST_SEEN > DATE_SUB(NOW(), INTERVAL %d SECOND)
+	    ORDER BY LAST_SEEN DESC
+	  )Q
+	  GROUP BY
+	    Q.SCHEMA_NAME,
+	    Q.DIGEST,
+	    Q.DIGEST_TEXT,
+	    Q.COUNT_STAR,
+	    Q.SUM_TIMER_WAIT,
+	    Q.SUM_ERRORS,
+	    Q.SUM_WARNINGS,
+	    Q.SUM_ROWS_AFFECTED,
+	    Q.SUM_ROWS_SENT,
+	    Q.SUM_ROWS_EXAMINED,
+	    Q.SUM_CREATED_TMP_DISK_TABLES,
+	    Q.SUM_CREATED_TMP_TABLES,
+	    Q.SUM_SORT_MERGE_PASSES,
+	    Q.SUM_SORT_ROWS,
+	    Q.SUM_NO_INDEX_USED
 	  ORDER BY SUM_TIMER_WAIT DESC
 	  LIMIT %d
 	`
 
 // Tuning flags.
 var (
-	perfEventsStatementsLimit = flag.Int(
-		"collect.perf_schema.eventsstatements.limit", 250,
+	perfEventsStatementsLimit = kingpin.Flag(
+		"collect.perf_schema.eventsstatements.limit",
 		"Limit the number of events statements digests by response time",
-	)
-	perfEventsStatementsTimeLimit = flag.Int(
-		"collect.perf_schema.eventsstatements.timelimit", 86400,
+	).Default("250").Int()
+	perfEventsStatementsTimeLimit = kingpin.Flag(
+		"collect.perf_schema.eventsstatements.timelimit",
 		"Limit how old the 'last_seen' events statements can be, in seconds",
-	)
-	perfEventsStatementsDigestTextLimit = flag.Int(
-		"collect.perf_schema.eventsstatements.digest_text_limit", 120,
+	).Default("86400").Int()
+	perfEventsStatementsDigestTextLimit = kingpin.Flag(
+		"collect.perf_schema.eventsstatements.digest_text_limit",
 		"Maximum length of the normalized statement text",
-	)
+	).Default("120").Int()
 )
 
 // Metric descriptors.

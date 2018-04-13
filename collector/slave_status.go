@@ -13,11 +13,27 @@ import (
 const (
 	// Subsystem.
 	slaveStatus = "slave_status"
-	// Query.
-	slaveStatusQuery = `SHOW SLAVE STATUS`
 )
 
+var slaveStatusQueries = [2]string{"SHOW ALL SLAVES STATUS", "SHOW SLAVE STATUS"}
 var slaveStatusQuerySuffixes = [3]string{" NONBLOCKING", " NOLOCK", ""}
+
+func columnIndex(slaveCols []string, colName string) int {
+	for idx := range slaveCols {
+		if slaveCols[idx] == colName {
+			return idx
+		}
+	}
+	return -1
+}
+
+func columnValue(scanArgs []interface{}, slaveCols []string, colName string) string {
+	var columnIndex = columnIndex(slaveCols, colName)
+	if columnIndex == -1 {
+		return ""
+	}
+	return string(*scanArgs[columnIndex].(*sql.RawBytes))
+}
 
 // ScrapeSlaveStatus collects from `SHOW SLAVE STATUS`.
 func ScrapeSlaveStatus(db *sql.DB, ch chan<- prometheus.Metric) error {
@@ -25,10 +41,18 @@ func ScrapeSlaveStatus(db *sql.DB, ch chan<- prometheus.Metric) error {
 		slaveStatusRows *sql.Rows
 		err             error
 	)
-	// Leverage lock-free SHOW SLAVE STATUS by guessing the right suffix
-	for _, suffix := range slaveStatusQuerySuffixes {
-		slaveStatusRows, err = db.Query(fmt.Sprint(slaveStatusQuery, suffix))
-		if err == nil {
+	// Try the both syntax for MySQL/Percona and MariaDB
+	for _, query := range slaveStatusQueries {
+		slaveStatusRows, err = db.Query(query)
+		if err != nil { // MySQL/Percona
+			// Leverage lock-free SHOW SLAVE STATUS by guessing the right suffix
+			for _, suffix := range slaveStatusQuerySuffixes {
+				slaveStatusRows, err = db.Query(fmt.Sprint(query, suffix))
+				if err == nil {
+					break
+				}
+			}
+		} else { // MariaDB
 			break
 		}
 	}
@@ -37,16 +61,12 @@ func ScrapeSlaveStatus(db *sql.DB, ch chan<- prometheus.Metric) error {
 	}
 	defer slaveStatusRows.Close()
 
-	if slaveStatusRows.Next() {
-		// There is either no row in SHOW SLAVE STATUS (if this is not a
-		// slave server), or exactly one. In case of multi-source
-		// replication, things work very much differently. This code
-		// cannot deal with that case.
-		slaveCols, err := slaveStatusRows.Columns()
-		if err != nil {
-			return err
-		}
+	slaveCols, err := slaveStatusRows.Columns()
+	if err != nil {
+		return err
+	}
 
+	for slaveStatusRows.Next() {
 		// As the number of columns varies with mysqld versions,
 		// and sql.Scan requires []interface{}, we need to create a
 		// slice of pointers to the elements of slaveData.
@@ -58,12 +78,24 @@ func ScrapeSlaveStatus(db *sql.DB, ch chan<- prometheus.Metric) error {
 		if err := slaveStatusRows.Scan(scanArgs...); err != nil {
 			return err
 		}
+
+		masterUUID := columnValue(scanArgs, slaveCols, "Master_UUID")
+		masterHost := columnValue(scanArgs, slaveCols, "Master_Host")
+		channelName := columnValue(scanArgs, slaveCols, "Channel_Name")       // MySQL & Percona
+		connectionName := columnValue(scanArgs, slaveCols, "Connection_name") // MariaDB
+
 		for i, col := range slaveCols {
 			if value, ok := parseStatus(*scanArgs[i].(*sql.RawBytes)); ok { // Silently skip unparsable values.
 				ch <- prometheus.MustNewConstMetric(
-					newDesc(slaveStatus, strings.ToLower(col), "Generic metric from SHOW SLAVE STATUS."),
+					prometheus.NewDesc(
+						prometheus.BuildFQName(namespace, slaveStatus, strings.ToLower(col)),
+						"Generic metric from SHOW SLAVE STATUS.",
+						[]string{"master_host", "master_uuid", "channel_name", "connection_name"},
+						nil,
+					),
 					prometheus.UntypedValue,
 					value,
+					masterHost, masterUUID, channelName, connectionName,
 				)
 			}
 		}

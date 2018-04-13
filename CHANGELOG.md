@@ -1,3 +1,39 @@
+## v0.10.0 / 2017-04-25
+
+BREAKING CHANGES:
+* `mysql_slave_...` metrics now include an additional `connection_name` label to support mariadb multi-source replication. (#178)
+
+* [FEATURE] Add read/write query response time #166
+* [FEATURE] Add Galera gcache size metric #169
+* [FEATURE] Add MariaDB multi source replication support #178
+* [FEATURE] Implement heartbeat metrics #183
+* [FEATURE] Add basic file_summary_by_instance metrics #189
+* [BUGFIX] Workaround MySQL bug 79533 #173
+
+## 0.9.0 / 2016-09-26
+
+BREAKING CHANGES:
+* InnoDB buffer pool page stats have been renamed/fixed to better support aggregations (#130)
+
+* [FEATURE] scrape slave status for multisource replication #134
+* [FEATURE] Add client statistics support (+ add tests on users & clients statistics) #138
+* [IMPROVEMENT] Consistency of error logging. #144
+* [IMPROVEMENT] Add label aggregation for innodb buffer metrics #130
+* [IMPROVEMENT] Improved and fixed user/client statistics #149
+* [FEATURE] Added the last binlog file number metric. #152
+* [MISC] Add an example recording rules file #156
+* [FEATURE] Added PXC/Galera info metrics. #155
+* [FEATURE] Added metrics from SHOW ENGINE INNODB STATUS. #160
+* [IMPROVEMENT] Fix wsrep_cluster_status #146
+
+
+## 0.8.1 / 2016-05-05
+
+* [BUGFIX] Fix collect.info_schema.innodb_tablespaces #119
+* [BUGFIX] Fix SLAVE STATUS "Connecting" #125
+* [MISC] New release process using docker, circleci and a centralized building tool #120
+* [MISC] Typos #121
+
 ## 0.8.0 / 2016-04-19
 
 BREAKING CHANGES:
